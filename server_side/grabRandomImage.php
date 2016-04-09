@@ -1,6 +1,6 @@
 <?php
 
-$path = 'images/';
+$path = '/mnt/photo/';
 $root = '';
 //$root = $_SERVER['DOCUMENT_ROOT'];
  
