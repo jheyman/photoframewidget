@@ -9,6 +9,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.util.Log;
+import android.view.View;
 import android.widget.RemoteViews;
 
 import java.io.BufferedInputStream;
@@ -70,6 +71,9 @@ public class PhotoFrameWidgetService extends IntentService {
         RemoteViews rv = new RemoteViews(context.getPackageName(),R.layout.photoframewidget);
         rv.setImageViewBitmap(R.id.imageView, b);
         rv.setTextViewText(R.id.textView, imagePath);
+
+        // image is about to be displayed: hide progress bar now.
+        rv.setViewVisibility(R.id.loadingProgress, View.GONE);
         return rv;
     }
 

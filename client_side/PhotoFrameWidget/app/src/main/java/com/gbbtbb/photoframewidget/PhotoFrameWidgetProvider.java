@@ -7,6 +7,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
+import android.view.View;
 import android.widget.RemoteViews;
 
 public class PhotoFrameWidgetProvider extends AppWidgetProvider {
@@ -21,11 +22,15 @@ public class PhotoFrameWidgetProvider extends AppWidgetProvider {
 
             RemoteViews remoteViews = new RemoteViews(context.getPackageName(), R.layout.photoframewidget);
 
+            // Register an intent so that onUpdate gets called again when user touches the widget,
             Intent intent = new Intent(context, PhotoFrameWidgetProvider.class);
             intent.setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE);
             intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, appWidgetIds);
             PendingIntent pendingIntent = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
             remoteViews.setOnClickPendingIntent(R.id.imageView, pendingIntent);
+
+            // We are about to start loading a new image: make the progress bar visible
+            remoteViews.setViewVisibility(R.id.loadingProgress, View.VISIBLE);
 
             appWidgetManager.updateAppWidget(widgetId, remoteViews);
         }
