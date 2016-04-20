@@ -45,7 +45,7 @@ public class PhotoFrameWidgetProvider extends AppWidgetProvider {
         // Update the widgets via the service
         context.startService(intent);
 
-        Log.i("PhotoFrameWidgetProvidr", "onUpdate completed");
+        Log.i("PhotoFrameWidgetProvidr", "onUpdate: background service started");
     }
 }
 

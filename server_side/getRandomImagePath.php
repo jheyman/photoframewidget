@@ -79,7 +79,8 @@ if ($img != "") {
 	$imgname = $dir."/".$img;
 	$sizeinfo = getimagesize($imgname);
 	$width = $sizeinfo[0];
+	$heigth = $sizeinfo[1];
 	$exif = exif_read_data($imgname, 0, true);
-  	echo $imgname.";".$width.";".$exif['IFD0']['Orientation'];
+  	echo $imgname.";".$width.";".$heigth.";".$exif['IFD0']['Orientation'];
 }
 ?>

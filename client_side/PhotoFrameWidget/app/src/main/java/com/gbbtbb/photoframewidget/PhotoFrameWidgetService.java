@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
+import android.os.Debug;
 import android.util.Log;
 import android.view.View;
 import android.widget.RemoteViews;
@@ -31,12 +32,13 @@ public class PhotoFrameWidgetService extends IntentService {
     {
         public String path;
         public int width;
+        public int heigth;
         public int orientation;
     };
 
     final int MIN_IMAGE_WIDTH = 128;
     final int MAX_IMAGE_WIDTH = 8192;
-    final int TARGET_IMAGE_WIDTH = 512;
+    final int TARGET_IMAGE_WIDTH = 800;
 
     @Override
     protected void onHandleIntent(Intent intent) {
@@ -46,21 +48,18 @@ public class PhotoFrameWidgetService extends IntentService {
 
         String pathToRandomImage = inf.path;
         int width = inf.width;
+        int heigth = inf.heigth;
 
         // Just filtering out suspiciously small or large images
         if ((width > MIN_IMAGE_WIDTH) && (width < MAX_IMAGE_WIDTH)) {
 
-            b = getImage(pathToRandomImage, width, inf.orientation);
+            b = getImage(pathToRandomImage, width, heigth, inf.orientation);
 
-            // if valid, refresh widget with it
-            if (b != null) {
-                Log.i("PhotoFrameWidgetService", "refreshing widget with image " + pathToRandomImage);
-                ComponentName me = new ComponentName(this, PhotoFrameWidgetProvider.class);
-                AppWidgetManager mgr = AppWidgetManager.getInstance(this);
-                mgr.updateAppWidget(me, buildUpdate(this, b, pathToRandomImage));
-            } else {
-                Log.i("PhotoFrameWidgetService", "could not get image " + pathToRandomImage);
-            }
+            Log.i("PhotoFrameWidgetService", "refreshing widget with image " + pathToRandomImage);
+            ComponentName me = new ComponentName(this, PhotoFrameWidgetProvider.class);
+            AppWidgetManager mgr = AppWidgetManager.getInstance(this);
+            mgr.updateAppWidget(me, buildUpdate(this, b, pathToRandomImage));
+
         } else {
             Log.i("PhotoFrameWidgetService", String.format("image width (%d) is out of bounds [%d, %d]", width, MIN_IMAGE_WIDTH, MAX_IMAGE_WIDTH));
         }
@@ -69,7 +68,14 @@ public class PhotoFrameWidgetService extends IntentService {
     private RemoteViews buildUpdate(Context context, Bitmap b, String imagePath) {
 
         RemoteViews rv = new RemoteViews(context.getPackageName(),R.layout.photoframewidget);
-        rv.setImageViewBitmap(R.id.imageView, b);
+        if (b != null) {
+            rv.setImageViewBitmap(R.id.imageView, b);
+        }
+        else {
+            Log.e("PhotoFrameWidgetService", "NULL bitmap: skipping" );
+            Bitmap bm = BitmapFactory.decodeResource(getResources(), R.drawable.preview);
+            rv.setImageViewBitmap(R.id.imageView, bm);
+        }
         rv.setTextViewText(R.id.textView, imagePath);
 
         // image is about to be displayed: hide progress bar now.
@@ -137,20 +143,23 @@ public class PhotoFrameWidgetService extends IntentService {
         }
 
         String result = httpRequest(query);
+
         String[] parts = result.split(";");
 
         inf.path = parts[0];
 
         try{
             inf.width = Integer.parseInt(parts[1]);
+            inf.heigth = Integer.parseInt(parts[2]);
         } catch (NumberFormatException n) {
-            Log.e("PhotoFrameWidgetService", "getRandomImageInfo: error parsing image width: " + n.toString());
+            Log.e("PhotoFrameWidgetService", "getRandomImageInfo: error parsing image width or height: " + n.toString());
             inf.width = 512;
+            inf.heigth = 512;
         }
 
-        if (parts.length > 2) {
+        if (parts.length > 3) {
             try{
-                inf.orientation = Integer.parseInt(parts[2]);
+                inf.orientation = Integer.parseInt(parts[3]);
             } catch (NumberFormatException n) {
                 Log.e("PhotoFrameWidgetService", "getRandomImageInfo: error parsing image orientation: " + n.toString());
                 inf.orientation = 1;
@@ -163,7 +172,14 @@ public class PhotoFrameWidgetService extends IntentService {
         return inf;
     }
 
-    private Bitmap getImage(String path, int originalWidth, int originalOrientation) {
+    public static double getAvailableMemoryInMB(){
+        double max = Runtime.getRuntime().maxMemory()/1024;
+        Debug.MemoryInfo memoryInfo = new Debug.MemoryInfo();
+        Debug.getMemoryInfo(memoryInfo);
+        return (max - memoryInfo.getTotalPss())/1024;
+    }
+
+    private Bitmap getImage(String path, int originalWidth, int originalHeight, int originalOrientation) {
 
         Bitmap b=null;
         Bitmap temp;
@@ -179,6 +195,8 @@ public class PhotoFrameWidgetService extends IntentService {
             Log.e("PhotoFrameWidgetService", "getImage: Error encoding URL params: " + e.toString());
         }
 
+        double am = getAvailableMemoryInMB();
+
         try {
             URL url = new URL(query);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -189,43 +207,62 @@ public class PhotoFrameWidgetService extends IntentService {
             // this is useful to avoid decoding very large images into equally large bitmaps, which could cause out of
             // memory conditions on the device, and is not useful anyway since rendered image will be quite small.
             BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inSampleSize = originalWidth/TARGET_IMAGE_WIDTH;
-            temp = BitmapFactory.decodeResourceStream(null, null, imageDataStream, null, options);
-            int imageHeight = options.outHeight;
-            int imageWidth = options.outWidth;
-            Log.i("PhotoFrameWidgetService", "getImage: resampled height=" + Integer.toString(imageHeight) + ", resampled width=" + Integer.toString(imageWidth));
 
-            imageDataStream.close();
+            int width = originalWidth;
+            int inSampleSize = 1;
 
-            // Rotate image depending on the orientation setting gathered from the image EXIF data
-            int rotationAngle = 0;
-            switch(originalOrientation) {
-                case 1:
-                    rotationAngle = 0;
-                    break;
-                case 3:
-                    rotationAngle = 180;
-                    break;
-                case 6:
-                    rotationAngle = 90;
-                    break;
-                case 8:
-                    rotationAngle = 270;
-                    break;
-                default:
-                    Log.e("PhotoFrameWidgetService", "Orientation value " + Integer.toString(originalOrientation) + " unknown");
-                    break;
+            if (originalWidth > TARGET_IMAGE_WIDTH) {
+
+                while ((originalWidth / inSampleSize) > TARGET_IMAGE_WIDTH) {
+                    inSampleSize *= 2;
+                }
             }
 
-            // if needed rotate image depending on EXIF orientation data, to view it heads-up
-            if (rotationAngle != 0) {
-                Matrix matrix = new Matrix();
-                matrix.postRotate(rotationAngle);
-                b = Bitmap.createBitmap(temp, 0, 0, temp.getWidth(), temp.getHeight(), matrix, true);
-            } else {
-                b =temp;
-            }
+            //Log.i("PhotoFrameWidgetService", "getImage: resampling factor=" + Integer.toString(inSampleSize));
 
+            // Only proceed to load the resampled image if it is going to fit in available memory
+            int resampledBitmapSizeInMB = (originalWidth/inSampleSize)*(originalHeight/inSampleSize)*4/(1024*1024);
+            if ( resampledBitmapSizeInMB < 0.9*am ) {
+
+                options.inSampleSize = inSampleSize;
+                temp = BitmapFactory.decodeResourceStream(null, null, imageDataStream, null, options);
+                int imageHeight = options.outHeight;
+                int imageWidth = options.outWidth;
+
+                imageDataStream.close();
+
+                // Rotate image depending on the orientation setting gathered from the image EXIF data
+                int rotationAngle = 0;
+                switch (originalOrientation) {
+                    case 1:
+                        rotationAngle = 0;
+                        break;
+                    case 3:
+                        rotationAngle = 180;
+                        break;
+                    case 6:
+                        rotationAngle = 90;
+                        break;
+                    case 8:
+                        rotationAngle = 270;
+                        break;
+                    default:
+                        Log.e("PhotoFrameWidgetService", "Orientation value " + Integer.toString(originalOrientation) + " unknown");
+                        break;
+                }
+
+                // if needed rotate image depending on EXIF orientation data, to view it heads-up
+                if (rotationAngle != 0) {
+                    Matrix matrix = new Matrix();
+                    matrix.postRotate(rotationAngle);
+                    b = Bitmap.createBitmap(temp, 0, 0, temp.getWidth(), temp.getHeight(), matrix, true);
+                } else {
+                    b = temp;
+                }
+            }
+            else {
+                Log.e("PhotoFrameWidgetService", "Too few RAM available (" + Double.toString(0.9*am) + ") to load image (needed " + Integer.toString(resampledBitmapSizeInMB)+")");
+            }
         } catch (Exception e) {
             e.printStackTrace();
             Log.i("PhotoFrameWidgetService", "getImage: exception reading image over network");
