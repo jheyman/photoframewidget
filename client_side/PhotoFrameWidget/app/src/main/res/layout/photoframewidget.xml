@@ -4,32 +4,45 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent">
-
-    <TextView
-        android:id="@+id/textView"
-        android:layout_height="wrap_content"
+    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+        android:orientation="vertical"
         android:layout_width="match_parent"
-        android:layout_weight="0.1"
-        android:gravity="center"
-        android:background="#00000000"
-        android:text="not loaded"
-        android:padding="@dimen/padding"
-        android:textSize="@dimen/text_size"
-        android:textStyle="bold"/>
+        android:layout_height="match_parent">
 
-    <ImageView
-        android:id="@+id/imageView"
-        android:layout_height="wrap_content"
-        android:layout_width="match_parent"
-        android:layout_weight="0.9"
-        android:padding="@dimen/padding"
-        android:background="#00000000"/>
+        <RelativeLayout
+            android:id="@+id/RelativeLayout1"
+            android:layout_width="match_parent"
+            android:layout_height="15dp"
+            android:orientation="horizontal" >
 
-</LinearLayout>
+            <TextView
+                android:id="@+id/textView"
+                android:layout_height="match_parent"
+                android:layout_width="wrap_content"
+                android:layout_centerInParent="true"
+                android:text="not loaded yet"
+                android:paddingRight="5dp"
+                android:textSize="@dimen/text_size"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"/>
+
+            <ImageView
+                android:id="@+id/emailicon"
+                android:layout_height="match_parent"
+                android:layout_width="wrap_content"
+                android:layout_toRightOf="@id/textView"
+                android:scaleType="fitStart"
+                android:src="@drawable/email"/>
+
+        </RelativeLayout>
+
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_height="wrap_content"
+            android:layout_width="match_parent"
+            android:src="@drawable/preview"/>
+
+    </LinearLayout>
 
     <ProgressBar
         android:id="@+id/loadingProgress"

@@ -1,6 +1,7 @@
 package com.gbbtbb.photoframewidget;
 
 import android.app.IntentService;
+import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -15,6 +16,7 @@ import android.widget.RemoteViews;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -36,47 +38,117 @@ public class PhotoFrameWidgetService extends IntentService {
         public int orientation;
     };
 
+    final String BASE_DIR= "/mnt/photo";
     final int MIN_IMAGE_WIDTH = 128;
     final int MAX_IMAGE_WIDTH = 8192;
-    final int TARGET_IMAGE_WIDTH = 800;
+    final int TARGET_DISPLAYED_IMAGE_WIDTH = 800;
+    final int TARGET_SAVED_IMAGE_WIDTH = 1600;
 
     @Override
     protected void onHandleIntent(Intent intent) {
+
         Bitmap b = null;
-        // Get a random image from remote server
-        ImageInfo inf = getRandomImageInfo("/mnt/photo");
 
-        String pathToRandomImage = inf.path;
-        int width = inf.width;
-        int heigth = inf.heigth;
+        final String action = intent.getAction();
 
-        // Just filtering out suspiciously small or large images
-        if ((width > MIN_IMAGE_WIDTH) && (width < MAX_IMAGE_WIDTH)) {
+        Log.i("PhotoFrameWidgetService", "onHandleIntent action= " + action );
 
-            b = getImage(pathToRandomImage, width, heigth, inf.orientation);
+        if (action.equals(PhotoFrameWidgetProvider.FULLRESSAVE_ACTION)) {
 
-            Log.i("PhotoFrameWidgetService", "refreshing widget with image " + pathToRandomImage);
-            ComponentName me = new ComponentName(this, PhotoFrameWidgetProvider.class);
-            AppWidgetManager mgr = AppWidgetManager.getInstance(this);
-            mgr.updateAppWidget(me, buildUpdate(this, b, pathToRandomImage));
+            String imagePath = intent.getStringExtra("imagepath");
+            int width = intent.getIntExtra("width", 0);
+            int heigth = intent.getIntExtra("height", 0);
+            int orientation = intent.getIntExtra("orientation", 0);
 
-        } else {
-            Log.i("PhotoFrameWidgetService", String.format("image width (%d) is out of bounds [%d, %d]", width, MIN_IMAGE_WIDTH, MAX_IMAGE_WIDTH));
+            // get image data, with no rescaling
+            b = getImage(imagePath, width, heigth, orientation, TARGET_SAVED_IMAGE_WIDTH);
+
+            // Save image to temporary location
+            String path = intent.getStringExtra("savepath");
+            Log.i("PhotoFrameWidgetService", "Saving path = " + path);
+
+            FileOutputStream out = null;
+            try {
+                out = new FileOutputStream(path+"/temp.png");
+                b.compress(Bitmap.CompressFormat.PNG, 100, out); // bmp is your Bitmap instance
+                // PNG is a lossless format, the compression factor (100) is ignored
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    if (out != null) {
+                        out.close();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            // Notify widget that image has been saved to disk
+            final Intent doneIntent = new Intent(this, PhotoFrameWidgetProvider.class);
+            doneIntent.setAction(PhotoFrameWidgetProvider.FULLRESSAVINGDONE_ACTION);
+            final PendingIntent donePendingIntent = PendingIntent.getBroadcast(this, 0, doneIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+            try {
+                Log.i("PhotoFrameWidgetService", "onHandleIntent: launching pending Intent for loading done");
+                donePendingIntent.send();
+            }
+            catch (PendingIntent.CanceledException ce) {
+                Log.i("PhotoFrameWidgetService", "onHandleIntent: Exception: "+ce.toString());
+            }
+
+        } else if (action.equals(PhotoFrameWidgetProvider.GETLOWRESIMAGE_ACTION)) {
+            // Get a random image from remote server
+            ImageInfo inf = getRandomImageInfo(BASE_DIR);
+
+            String pathToRandomImage = inf.path;
+            int width = inf.width;
+            int heigth = inf.heigth;
+
+            // Just filtering out suspiciously small or large images
+            if ((width > MIN_IMAGE_WIDTH) && (width < MAX_IMAGE_WIDTH)) {
+
+                b = getImage(pathToRandomImage, width, heigth, inf.orientation, TARGET_DISPLAYED_IMAGE_WIDTH);
+
+                Log.i("PhotoFrameWidgetService", "refreshing widget with image " + pathToRandomImage);
+                ComponentName me = new ComponentName(this, PhotoFrameWidgetProvider.class);
+                AppWidgetManager mgr = AppWidgetManager.getInstance(this);
+                mgr.updateAppWidget(me, buildUpdate(this, b, inf));
+            }
+            else {
+                Log.i("PhotoFrameWidgetService", String.format("image width (%d) is out of bounds [%d, %d]", width, MIN_IMAGE_WIDTH, MAX_IMAGE_WIDTH));
+            }
         }
     }
 
-    private RemoteViews buildUpdate(Context context, Bitmap b, String imagePath) {
+    private RemoteViews buildUpdate(Context context, Bitmap b, ImageInfo inf) {
 
         RemoteViews rv = new RemoteViews(context.getPackageName(),R.layout.photoframewidget);
         if (b != null) {
             rv.setImageViewBitmap(R.id.imageView, b);
         }
         else {
-            Log.e("PhotoFrameWidgetService", "NULL bitmap: skipping" );
+            Log.e("PhotoFrameWidgetService", "NULL bitmap: skipping");
             Bitmap bm = BitmapFactory.decodeResource(getResources(), R.drawable.preview);
             rv.setImageViewBitmap(R.id.imageView, bm);
         }
-        rv.setTextViewText(R.id.textView, imagePath);
+        rv.setTextViewText(R.id.textView, inf.path.substring(BASE_DIR.length()));
+
+        final Intent doneIntent = new Intent(context, PhotoFrameWidgetProvider.class);
+        doneIntent.setAction(PhotoFrameWidgetProvider.LOWRESLOADINGDONE_ACTION);
+        doneIntent.putExtra("imagepath", inf.path);
+        doneIntent.putExtra("width", inf.width);
+        doneIntent.putExtra("heigth", inf.heigth);
+        doneIntent.putExtra("orientation", inf.orientation);
+        final PendingIntent donePendingIntent = PendingIntent.getBroadcast(context, 0, doneIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+        try {
+            Log.i("PhotoFrameWidgetService", "buildUpdate: launching pending Intent for loading done");
+            donePendingIntent.send();
+        }
+        catch (PendingIntent.CanceledException ce) {
+            Log.i("PhotoFrameWidgetService", "buildUpdate: Exception: "+ce.toString());
+        }
 
         // image is about to be displayed: hide progress bar now.
         rv.setViewVisibility(R.id.loadingProgress, View.GONE);
@@ -179,7 +251,7 @@ public class PhotoFrameWidgetService extends IntentService {
         return (max - memoryInfo.getTotalPss())/1024;
     }
 
-    private Bitmap getImage(String path, int originalWidth, int originalHeight, int originalOrientation) {
+    private Bitmap getImage(String path, int originalWidth, int originalHeight, int originalOrientation, int targetWidth) {
 
         Bitmap b=null;
         Bitmap temp;
@@ -208,12 +280,11 @@ public class PhotoFrameWidgetService extends IntentService {
             // memory conditions on the device, and is not useful anyway since rendered image will be quite small.
             BitmapFactory.Options options = new BitmapFactory.Options();
 
-            int width = originalWidth;
             int inSampleSize = 1;
 
-            if (originalWidth > TARGET_IMAGE_WIDTH) {
+            if (originalWidth > targetWidth) {
 
-                while ((originalWidth / inSampleSize) > TARGET_IMAGE_WIDTH) {
+                while ((originalWidth / inSampleSize) > targetWidth) {
                     inSampleSize *= 2;
                 }
             }
